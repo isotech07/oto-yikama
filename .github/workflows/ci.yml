@@ -65,3 +65,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Üretim imajlarını derle
         run: docker compose -f docker-compose.yml --env-file deploy/.env.example build
+      - name: Render imajını derle
+        run: docker build -f deploy/render/Dockerfile -t oto-yikama-render .
+      - name: Render imajı açılış denetimi (veritabanı adresi yoksa anlaşılır hata vermeli)
+        run: |
+          out=$(docker run --rm oto-yikama-render 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "DATABASE_URL tanımlı değil"

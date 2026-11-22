@@ -2,7 +2,18 @@
 
 Tek şubeli oto yıkama işletmesi için yönetim uygulaması. Ayrıntılar ve kurallar: [CLAUDE.md](CLAUDE.md).
 
-## Kurulum
+## Hızlı deneme (kendi bilgisayarınızda)
+
+Yalnız [Docker Desktop](https://www.docker.com/products/docker-desktop/) gerekir. Terminalde proje klasöründe:
+
+```bash
+sh scripts/deneme.sh
+```
+
+İlk seferde birkaç dakika sürer. Sonra tarayıcıda **https://localhost** açın; giriş bilgileri komutun sonunda yazar.
+Durdurmak: `sh scripts/deneme.sh kapat` · Tamamen silmek: `sh scripts/deneme.sh sil`
+
+## Geliştirici kurulumu
 
 Gereksinimler: Node.js 22+, PostgreSQL 16.
 

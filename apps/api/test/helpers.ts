@@ -28,3 +28,23 @@ export function randomPlate(): string {
   const n = Math.floor(Math.random() * 1e8).toString().padStart(8, '0');
   return `T${n}`;
 }
+
+import request from 'supertest';
+import { SESSION_COOKIE } from '../src/auth/auth.types';
+
+/** Verilen rolde kullanıcı oluşturup giriş yapar; isteklerde kullanılacak çerez ve kullanıcıyı döner. */
+export async function loginAs(app: INestApplication, prisma: PrismaClient, role: Role) {
+  const { user, email, password } = await createUser(prisma, role);
+  const res = await request(app.getHttpServer()).post('/api/auth/login').send({ email, password });
+  const raw = res.headers['set-cookie'] as unknown as string[];
+  const cookie = raw.find((c) => c.startsWith(`${SESSION_COOKIE}=`))!.split(';')[0];
+  const http = app.getHttpServer();
+  const as = {
+    get: (url: string) => request(http).get(url).set('Cookie', cookie),
+    post: (url: string, body?: object) => request(http).post(url).set('Cookie', cookie).send(body ?? {}),
+    patch: (url: string, body?: object) => request(http).patch(url).set('Cookie', cookie).send(body ?? {}),
+    delete: (url: string) => request(http).delete(url).set('Cookie', cookie),
+  };
+  return { user, cookie, ...as };
+}
+export type Client = Awaited<ReturnType<typeof loginAs>>;

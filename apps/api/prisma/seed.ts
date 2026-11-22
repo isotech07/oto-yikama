@@ -36,8 +36,41 @@ async function main() {
         ],
       });
     }
+
+    if ((await prisma.workOrder.count()) === 0) await seedWorkOrders();
   }
   console.log('Seed tamamlandı');
+}
+
+async function seedWorkOrders() {
+  const cashier = await prisma.user.findUniqueOrThrow({ where: { email: 'kasiyer@otoyikama.local' } });
+  const worker = await prisma.user.findUniqueOrThrow({ where: { email: 'personel@otoyikama.local' } });
+  const services = await prisma.service.findMany({ orderBy: { priceKurus: 'asc' } });
+  const sample: { name: string; phone: string; plate: string; brand: string; status: 'BEKLIYOR' | 'YIKANIYOR' | 'HAZIR'; svc: number[]; paid?: boolean }[] = [
+    { name: 'Ahmet Yılmaz', phone: '5321112233', plate: '34ABC123', brand: 'Renault', status: 'BEKLIYOR', svc: [0] },
+    { name: 'Zeynep Kaya', phone: '5334445566', plate: '06ZK2024', brand: 'Toyota', status: 'YIKANIYOR', svc: [1, 2] },
+    { name: 'Mert Demir', phone: '5427778899', plate: '35MD777', brand: 'Volkswagen', status: 'HAZIR', svc: [2], paid: true },
+  ];
+  for (const s of sample) {
+    const customer = await prisma.customer.create({ data: { name: s.name, phone: s.phone } });
+    const vehicle = await prisma.vehicle.create({ data: { plate: s.plate, brand: s.brand, customerId: customer.id } });
+    const items = s.svc.map((i) => services[i]);
+    const wo = await prisma.workOrder.create({
+      data: {
+        vehicleId: vehicle.id,
+        customerId: customer.id,
+        status: s.status,
+        assignedWorkerId: worker.id,
+        createdById: cashier.id,
+        items: { create: items.map((x) => ({ serviceId: x.id, serviceName: x.name, unitPrice: x.priceKurus, vatRateBp: x.vatRateBp })) },
+        statusLogs: { create: { fromStatus: null, toStatus: 'BEKLIYOR', changedById: cashier.id } },
+      },
+    });
+    if (s.paid) {
+      const total = items.reduce((t, x) => t + x.priceKurus, 0);
+      await prisma.payment.create({ data: { workOrderId: wo.id, amountKurus: total, method: 'KART', receivedById: cashier.id } });
+    }
+  }
 }
 
 main()

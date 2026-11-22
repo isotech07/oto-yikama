@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react';
-import { api, ApiError, type User } from '../lib/api';
+import { api, ApiError, SESSION_EXPIRED_EVENT, type User } from '../lib/api';
 
 interface AuthState {
   user: User | null;
@@ -22,6 +22,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!(e instanceof ApiError && e.status === 401)) console.error(e);
       })
       .finally(() => setLoading(false));
+  }, []);
+
+  // Herhangi bir istek 401 alırsa (oturum süresi doldu / kullanıcı pasife alındı) giriş ekranına dön.
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

@@ -155,7 +155,8 @@ model WorkOrderItem {
   unitPrice   Int      @map("unit_price")
   vatRateBp   Int      @map("vat_rate_bp")
   quantity    Int      @default(1)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
 
   workOrder WorkOrder @relation(fields: [workOrderId], references: [id])
   service   Service   @relation(fields: [serviceId], references: [id])
@@ -169,8 +170,12 @@ model WorkOrderItem {
 model Payment {
   id           String        @id @default(uuid()) @db.Uuid
   workOrderId  String        @map("work_order_id") @db.Uuid
+  // Pozitif: tahsilat. Negatif: iade (yalnız ADMIN, açıklama zorunlu).
   amountKurus  Int           @map("amount_kurus")
   method       PaymentMethod
+  note         String?
+  // İstemcinin ürettiği anahtar: çift tıklama/yeniden denemede ikinci tahsilatı engeller.
+  idempotencyKey String      @unique @default(dbgenerated("gen_random_uuid()")) @map("idempotency_key") @db.Uuid
   receivedById String        @map("received_by_id") @db.Uuid
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
 

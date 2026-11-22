@@ -21,6 +21,19 @@ Arayüz Türkçe, para birimi TL, KDV desteği var.
 - Prisma'nın ifade edemediği kısıtlar migration SQL'ine elle eklenir (plaka formatı CHECK, kısmi unique index'ler,
   ödeme değiştirilemezlik trigger'ı). Yeni migration'larda da bu kısıtları koru.
 - Testler `otoyikama_test` veritabanında çalışır, veri silmez; her test benzersiz e-posta/plaka üretir.
+- **İş akışı kuralları** (sunucuda, `work-orders.service.ts`):
+  - Personel (WORKER) yalnız kendisine atanan iş emrini görür (başkasınınki 404) ve yalnız
+    YIKANIYOR / KURULANIYOR / HAZIR geçişlerini yapar. Teslim ve iptal kasaya (ADMIN/CASHIER) aittir.
+  - Personele müşteri telefonu ve ödeme bilgisi gösterilmez.
+  - **Teslim için bakiye 0 olmalı.** Tahsilatı olan iş emri iptal edilemez (önce iade).
+  - Tahsilat kalan bakiyeyi aşamaz. İade = negatif tutarlı ödeme kaydı; yalnız ADMIN, açıklama zorunlu (DB CHECK).
+  - Her ödeme istemci tarafından üretilen `idempotencyKey` (UUID) taşır; aynı anahtar ikinci kez kaydedilmez.
+  - Tahsilat, durum, kalem ve atama değişiklikleri iş emri satırını `SELECT … FOR UPDATE` ile kilitler.
+  - Kalemler soft delete edilir; ödenen tutarın altına düşürecek kalem çıkarma reddedilir.
+- **Raporlar**: İstanbul günü (sabit UTC+3). Kasa = ödeme anına göre; ciro/KDV = teslim anına göre.
+- **PWA**: yalnız uygulama kabuğu önbelleğe alınır; `/api` asla önbelleğe alınmaz (eski bakiye riski).
+- Prisma `migrate dev` bu ortamda etkileşimsiz çalışmaz: yeni migration için şemayı değiştir,
+  `prisma migrate diff --from-migrations … --to-schema-datamodel … --script` ile SQL üret, elle kısıtları ekle, `migrate deploy` uygula.
 - Dev sunucusu SWC ile çalışır (`@swc-node/register`); `tsx`/esbuild NestJS decorator metadata'sı üretmez.
 
 ## Roller

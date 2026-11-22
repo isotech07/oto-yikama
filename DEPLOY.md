@@ -84,3 +84,24 @@ ls -lh deploy/backups/                          # son yedeğin tarihi bugün/dü
 ```
 
 Loglarda telefon ve plaka açık yazılmaz.
+
+---
+
+# Ücretsiz bulut denemesi: Render + Neon
+
+Tek servis (API web arayüzünü de sunar) + harici PostgreSQL. Kredi kartı gerekmez.
+
+**Sınırlar:** Render ücretsiz servisi 15 dk kullanılmayınca uyur (ilk açılış 30-60 sn). Neon ücretsiz planı 0,5 GB.
+Gerçek işletme kullanımı için yukarıdaki sunucu kurulumu ya da ücretli plan önerilir. Otomatik yedek bu kurulumda yoktur
+(Neon kendi içinde kısa süreli geri dönüş noktası tutar).
+
+1. **Neon** (neon.tech): proje oluşturun (PostgreSQL 16, AWS Frankfurt). *Connect* → **Connection pooling kapalı** →
+   bağlantı adresini kopyalayın; sonunda `&channel_binding=require` varsa silin.
+2. **Render** (render.com, GitHub ile giriş) → *New* → *Blueprint* → bu depoyu seçin. `render.yaml` okunur ve iki değer sorulur:
+   - `DATABASE_URL`: Neon adresi
+   - `SEED_DEMO_PASSWORD`: deneme hesaplarının ortak şifresi (en az 10 karakter)
+3. *Apply* → ilk derleme 5-10 dk. Adres: `https://oto-yikama-xxxx.onrender.com`.
+4. Giriş: `admin@otoyikama.local`, `kasiyer@otoyikama.local`, `personel@otoyikama.local` — şifre: 2. adımdaki şifre.
+
+Deneme bitince gerçek kullanıma geçmeden: Render'da `SEED_DEMO` değerini `false` yapın, `SEED_ADMIN_EMAIL` ve
+`SEED_ADMIN_PASSWORD` ekleyin, deneme kullanıcılarını Kullanıcılar ekranından pasife alın.

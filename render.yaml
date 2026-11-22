@@ -1,0 +1,27 @@
+# Render Blueprint: https://dashboard.render.com/blueprints -> "New Blueprint Instance" -> bu depo.
+# Veritabanı Render dışında (Neon/Supabase); bağlantı adresi kurulumda sorulur.
+services:
+  - type: web
+    name: oto-yikama
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false # Neon bağlantı adresi (pooling kapalı, ...?sslmode=require)
+      - key: SEED_DEMO_PASSWORD
+        sync: false # Deneme hesaplarının ortak şifresi (en az 10 karakter)
+      - key: NODE_ENV
+        value: production
+      - key: SEED_ON_START
+        value: 'true'
+      - key: SEED_DEMO
+        value: 'true'
+      - key: SMS_PROVIDER
+        value: log
+      - key: TRUST_PROXY
+        value: '1'

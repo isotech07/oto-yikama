@@ -3,6 +3,9 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 const isProd = process.env.NODE_ENV === 'production';
+// Herkese açık deneme kurulumu: örnek veriler üretimde de yüklenir, tüm deneme hesapları aynı (güçlü) şifreyi kullanır.
+const demo = process.env.SEED_DEMO === 'true';
+const demoPassword = process.env.SEED_DEMO_PASSWORD;
 
 async function upsertUser(email: string, name: string, role: 'ADMIN' | 'CASHIER' | 'WORKER', password: string) {
   const passwordHash = await bcrypt.hash(password, 12);
@@ -14,16 +17,19 @@ async function upsertUser(email: string, name: string, role: 'ADMIN' | 'CASHIER'
 }
 
 async function main() {
-  const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  if (demo && (!demoPassword || demoPassword.length < 10)) {
+    throw new Error('SEED_DEMO=true için en az 10 karakterlik SEED_DEMO_PASSWORD gerekli');
+  }
+  const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase() || (demo ? 'admin@otoyikama.local' : undefined);
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || (demo ? demoPassword : undefined);
   if (isProd && (!adminEmail || !adminPassword)) {
     throw new Error('Üretimde SEED_ADMIN_EMAIL ve SEED_ADMIN_PASSWORD zorunlu');
   }
   await upsertUser(adminEmail || 'admin@otoyikama.local', 'Yönetici', 'ADMIN', adminPassword || 'Admin123!');
 
-  if (!isProd) {
-    await upsertUser('kasiyer@otoyikama.local', 'Ayşe Kasiyer', 'CASHIER', 'Kasiyer123!');
-    await upsertUser('personel@otoyikama.local', 'Mehmet Personel', 'WORKER', 'Personel123!');
+  if (!isProd || demo) {
+    await upsertUser('kasiyer@otoyikama.local', 'Ayşe Kasiyer', 'CASHIER', demo ? demoPassword! : 'Kasiyer123!');
+    await upsertUser('personel@otoyikama.local', 'Mehmet Personel', 'WORKER', demo ? demoPassword! : 'Personel123!');
 
     if ((await prisma.service.count()) === 0) {
       await prisma.service.createMany({

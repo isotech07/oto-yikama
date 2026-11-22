@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { Alert, Button, Card, Empty, Input, Loading, Modal, PageHeader, Select, Stat } from '../components/ui';
-import { api, type ManagedUser, type Role, type Service } from '../lib/api';
+import { api, type ManagedUser, type PackageDef, type Role, type Service } from '../lib/api';
 import { METHOD_LABELS, ROLE_LABELS, todayTr } from '../lib/format';
 import { formatTl, kurusToInput, parseTl, vatLabel } from '../lib/money';
 import { useAsync } from '../lib/useAsync';
@@ -53,6 +53,7 @@ export function ServicesPage() {
           </table>
         </div>
       )}
+      <PackagesSection services={data ?? []} />
       {editing && (
         <ServiceForm service={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={() => (setEditing(null), void reload())} />
       )}
@@ -120,6 +121,128 @@ function ServiceForm({ service, onClose, onSaved }: { service?: Service; onClose
             </Button>
           )}
         </div>
+      </form>
+    </Modal>
+  );
+}
+
+function PackagesSection({ services }: { services: Service[] }) {
+  const { data, error, loading, reload } = useAsync(() => api.packages.list(true), []);
+  const [editing, setEditing] = useState<PackageDef | 'new' | null>(null);
+  return (
+    <div className="mt-8">
+      <PageHeader title="Paketler" actions={<Button variant="secondary" onClick={() => setEditing('new')}>+ Yeni paket</Button>} />
+      <p className="mb-4 text-sm text-slate-500">
+        Paket satışı tahsil edildiği gün ciroya yazılır. Paketle yapılan yıkama iş emrinde 0 TL görünür ve müşterinin kredisinden düşer.
+      </p>
+      {error && <Alert>{error}</Alert>}
+      {loading && !data ? (
+        <Loading />
+      ) : data?.length === 0 ? (
+        <Empty>Henüz paket yok. Örn. "10 Dış Yıkama" paketi tanımlayın.</Empty>
+      ) : (
+        <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs text-slate-500">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Paket</th>
+                <th className="px-4 py-2.5 font-medium">Hizmet</th>
+                <th className="px-4 py-2.5 text-right font-medium">Kredi</th>
+                <th className="px-4 py-2.5 text-right font-medium">Fiyat</th>
+                <th className="px-4 py-2.5 font-medium">Geçerlilik</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data?.map((p) => (
+                <tr key={p.id} className={p.isActive ? '' : 'text-slate-400'}>
+                  <td className="px-4 py-2.5 font-medium">{p.name}</td>
+                  <td className="px-4 py-2.5">{p.service.name}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{p.credits}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{formatTl(p.priceKurus)}</td>
+                  <td className="px-4 py-2.5">{p.validDays ? `${p.validDays} gün` : 'Süresiz'}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>
+                      Düzenle
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {editing && (
+        <PackageForm pkg={editing === 'new' ? undefined : editing} services={services.filter((s) => s.isActive)} onClose={() => setEditing(null)} onSaved={() => (setEditing(null), void reload())} />
+      )}
+    </div>
+  );
+}
+
+function PackageForm({ pkg, services, onClose, onSaved }: { pkg?: PackageDef; services: Service[]; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(pkg?.name ?? '');
+  const [serviceId, setServiceId] = useState(pkg?.service.id ?? services[0]?.id ?? '');
+  const [credits, setCredits] = useState(String(pkg?.credits ?? 10));
+  const [price, setPrice] = useState(pkg ? kurusToInput(pkg.priceKurus) : '');
+  const [validDays, setValidDays] = useState(pkg?.validDays ? String(pkg.validDays) : '');
+  const [isActive, setIsActive] = useState(pkg?.isActive ?? true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const service = services.find((s) => s.id === serviceId);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const priceKurus = parseTl(price);
+    if (priceKurus === null) return setError('Geçerli bir fiyat girin');
+    const vd = validDays.trim() ? Number(validDays) : null;
+    setSaving(true);
+    setError(null);
+    try {
+      if (pkg) await api.packages.update(pkg.id, { name, priceKurus, validDays: vd, isActive });
+      else
+        await api.packages.create({ name, serviceId, credits: Number(credits), priceKurus, vatRateBp: service?.vatRateBp ?? 2000, validDays: vd, isActive });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kaydedilemedi');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open title={pkg ? 'Paketi düzenle' : 'Yeni paket'} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <Input label="Ad" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} placeholder="10 Dış Yıkama" />
+        {!pkg && (
+          <div className="grid grid-cols-[1fr_100px] gap-3">
+            <Select label="Hizmet" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+            <Input label="Kredi" type="number" min={1} max={1000} value={credits} onChange={(e) => setCredits(e.target.value)} />
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Paket fiyatı (₺)"
+            inputMode="decimal"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            required
+            hint={service && !pkg ? `Tekli toplam: ${formatTl(service.priceKurus * Number(credits || 0))}` : undefined}
+          />
+          <Input label="Geçerlilik (gün)" type="number" min={1} value={validDays} onChange={(e) => setValidDays(e.target.value)} hint="Boş = süresiz" />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> Satışta
+        </label>
+        {error && <Alert>{error}</Alert>}
+        <Button type="submit" className="w-full" busy={saving}>
+          Kaydet
+        </Button>
       </form>
     </Modal>
   );
@@ -289,9 +412,18 @@ export function ReportsPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Kasa (tahsilat)" value={formatTl(r.payments.totalKurus)} sub={r.payments.refundCount ? `İade dahil: ${formatTl(r.payments.refundKurus)}` : 'İade yok'} />
-            <Stat label="Teslim edilen ciro" value={formatTl(r.revenue.grossKurus)} sub={`KDV ${formatTl(r.revenue.vatKurus)} · Net ${formatTl(r.revenue.netKurus)}`} />
+            <Stat label="Ciro (teslim + paket)" value={formatTl(r.revenue.grossKurus)} sub={`KDV ${formatTl(r.revenue.vatKurus)} · Net ${formatTl(r.revenue.netKurus)}`} />
             <Stat label="Teslim edilen araç" value={r.workOrders.delivered} sub={`${r.workOrders.created} açıldı · ${r.workOrders.cancelled} iptal`} />
             <Stat label="Şu an açık" value={r.workOrders.openNow} sub="Tarihten bağımsız" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="Paket satışı" value={formatTl(r.packages.grossKurus)} sub={`${r.packages.sold} paket (ciroya dahil)`} />
+            <Stat label="Açık alacak (veresiye)" value={formatTl(r.receivablesKurus)} sub="Bugün itibarıyla, tüm zamanlar" />
+            <Stat
+              label="Kasa farkı"
+              value={<span className={r.cashClosings.totalDifferenceKurus ? 'text-red-700' : ''}>{formatTl(r.cashClosings.totalDifferenceKurus)}</span>}
+              sub={`${r.cashClosings.closedDays} gün kapatıldı`}
+            />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">

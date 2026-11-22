@@ -1,9 +1,10 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useAuth } from '../auth/AuthContext';
-import { Alert, Button, Card, Empty, Input, Loading, Modal, PageHeader, StatusBadge } from '../components/ui';
-import { api, type VehicleSummary } from '../lib/api';
-import { displayPhone, displayPlate, fmtDateTime } from '../lib/format';
+import { Alert, Button, Card, Empty, Input, Loading, Modal, PageHeader, Select, StatusBadge } from '../components/ui';
+import { api, type CustomerDetail, type PaymentMethod, type VehicleSummary } from '../lib/api';
+import { displayPhone, displayPlate, fmtDateTime, METHOD_LABELS } from '../lib/format';
+import { formatTl, kurusToInput, parseTl } from '../lib/money';
 import { useAsync } from '../lib/useAsync';
 
 export function CustomersPage() {
@@ -81,9 +82,10 @@ function CustomerForm({
   open: boolean;
   onClose: () => void;
   onSaved: (id: string) => void;
-  initial?: { id: string; name: string; phone: string | null };
+  initial?: { id: string; name: string; phone: string | null; smsConsent?: boolean };
 }) {
   const [name, setName] = useState(initial?.name ?? '');
+  const [smsConsent, setSmsConsent] = useState(initial?.smsConsent ?? false);
   const [phone, setPhone] = useState(initial?.phone ? displayPhone(initial.phone) : '');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -93,7 +95,7 @@ function CustomerForm({
     setSaving(true);
     setError(null);
     try {
-      const body = { name, phone: phone.trim() || null };
+      const body = { name, phone: phone.trim() || null, smsConsent };
       const r = initial ? await api.customers.update(initial.id, body) : await api.customers.create(body);
       onSaved(r.id);
       onClose();
@@ -109,12 +111,25 @@ function CustomerForm({
       <form onSubmit={submit} className="space-y-3">
         <Input label="Ad soyad" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
         <Input label="Telefon" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0532 123 45 67" />
+        <SmsConsent checked={smsConsent} onChange={setSmsConsent} />
         {error && <Alert>{error}</Alert>}
         <Button type="submit" className="w-full" busy={saving}>
           Kaydet
         </Button>
       </form>
     </Modal>
+  );
+}
+
+export function SmsConsent({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input type="checkbox" className="mt-1" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        Müşteri SMS bildirimi almayı kabul etti
+        <span className="block text-xs text-slate-500">Yalnız "aracınız hazır" bilgilendirmesi gönderilir (KVKK açık rıza).</span>
+      </span>
+    </label>
   );
 }
 
@@ -125,6 +140,8 @@ export function CustomerDetailPage() {
   const { data: c, error, loading, reload } = useAsync(() => api.customers.get(id), [id]);
   const [editOpen, setEditOpen] = useState(false);
   const [vehicleOpen, setVehicleOpen] = useState<VehicleSummary | 'new' | null>(null);
+  const [sellOpen, setSellOpen] = useState(false);
+  const [creditOpen, setCreditOpen] = useState(false);
 
   if (loading && !c) return <Loading />;
   if (error || !c) return <Alert>{error ?? 'Bulunamadı'}</Alert>;
@@ -161,6 +178,13 @@ export function CustomerDetailPage() {
           </>
         }
       />
+      {c.outstandingKurus > 0 && (
+        <div className="mb-4">
+          <Alert tone="warning">
+            Açık borç: <b>{formatTl(c.outstandingKurus)}</b> — teslim edilmiş iş emirlerinden tahsil edilmemiş tutar.
+          </Alert>
+        </div>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card
           title="İletişim ve araçlar"
@@ -170,7 +194,7 @@ export function CustomerDetailPage() {
             </Button>
           }
         >
-          <p className="mb-3 text-sm">
+          <p className="mb-1 text-sm">
             📞{' '}
             {c.phone ? (
               <a className="text-brand-700" href={`tel:0${c.phone}`}>
@@ -178,6 +202,15 @@ export function CustomerDetailPage() {
               </a>
             ) : (
               '—'
+            )}
+          </p>
+          <p className="mb-3 text-xs text-slate-500">
+            SMS izni: {c.smsConsent ? 'var' : 'yok'} · Veresiye:{' '}
+            {c.creditAllowed ? `açık${c.creditLimitKurus !== null ? ` (limit ${formatTl(c.creditLimitKurus)})` : ' (limitsiz)'}` : 'kapalı'}
+            {user?.role === 'ADMIN' && (
+              <button className="ml-2 text-brand-700 underline" onClick={() => setCreditOpen(true)}>
+                değiştir
+              </button>
             )}
           </p>
           {c.vehicles.length === 0 ? (
@@ -195,6 +228,38 @@ export function CustomerDetailPage() {
                   </Button>
                 </li>
               ))}
+            </ul>
+          )}
+        </Card>
+        <Card
+          title="Paketler"
+          actions={
+            <Button size="sm" variant="secondary" onClick={() => setSellOpen(true)}>
+              + Paket sat
+            </Button>
+          }
+        >
+          {c.packages.length === 0 ? (
+            <p className="text-sm text-slate-500">Paket yok.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100 text-sm">
+              {c.packages.map((p) => {
+                const expired = p.expiresAt && new Date(p.expiresAt) < new Date();
+                return (
+                  <li key={p.id} className={`flex items-center justify-between py-2 ${expired || !p.remainingCredits ? 'text-slate-400' : ''}`}>
+                    <span>
+                      {p.name}
+                      <span className="block text-xs text-slate-500">
+                        {fmtDateTime(p.createdAt)}
+                        {p.expiresAt && ` · ${expired ? 'süresi doldu' : `son gün ${p.expiresAt.slice(0, 10)}`}`}
+                      </span>
+                    </span>
+                    <span className="font-semibold tabular-nums">
+                      {p.remainingCredits}/{p.totalCredits}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
@@ -218,6 +283,8 @@ export function CustomerDetailPage() {
         </Card>
       </div>
       {editOpen && <CustomerForm open initial={c} onClose={() => setEditOpen(false)} onSaved={() => void reload()} />}
+      {sellOpen && <SellPackage customerId={c.id} onClose={() => setSellOpen(false)} onDone={() => (setSellOpen(false), void reload())} />}
+      {creditOpen && <CreditForm c={c} onClose={() => setCreditOpen(false)} onDone={() => (setCreditOpen(false), void reload())} />}
       {vehicleOpen && (
         <VehicleForm
           customerId={c.id}
@@ -297,6 +364,108 @@ function VehicleForm({
             </Button>
           )}
         </div>
+      </form>
+    </Modal>
+  );
+}
+
+function SellPackage({ customerId, onClose, onDone }: { customerId: string; onClose: () => void; onDone: () => void }) {
+  const pkgs = useAsync(() => api.packages.list(), []);
+  const [packageId, setPackageId] = useState('');
+  const [method, setMethod] = useState<PaymentMethod>('KART');
+  const [key] = useState(() => crypto.randomUUID());
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const selected = pkgs.data?.find((p) => p.id === packageId);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!packageId) return setError('Paket seçin');
+    setSaving(true);
+    setError(null);
+    try {
+      await api.customers.sellPackage(customerId, { packageId, method, idempotencyKey: key });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Satış yapılamadı');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open title="Paket sat" onClose={onClose}>
+      {pkgs.loading ? (
+        <Loading />
+      ) : pkgs.data?.length === 0 ? (
+        <p className="text-sm text-slate-500">Satışta paket yok. Yönetici Hizmetler sayfasından paket tanımlayabilir.</p>
+      ) : (
+        <form onSubmit={submit} className="space-y-3">
+          <Select label="Paket" value={packageId} onChange={(e) => setPackageId(e.target.value)}>
+            <option value="">— Seçin —</option>
+            {pkgs.data?.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · {formatTl(p.priceKurus)}
+              </option>
+            ))}
+          </Select>
+          <Select label="Ödeme yöntemi" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+            {(['KART', 'NAKIT', 'HAVALE'] as const).map((m) => (
+              <option key={m} value={m}>
+                {METHOD_LABELS[m]}
+              </option>
+            ))}
+          </Select>
+          {selected && (
+            <p className="rounded-lg bg-slate-50 p-3 text-sm">
+              {selected.credits} × {selected.service.name}
+              {selected.validDays ? `, ${selected.validDays} gün geçerli` : ', süresiz'}. Tahsil edilecek: <b>{formatTl(selected.priceKurus)}</b>
+            </p>
+          )}
+          {error && <Alert>{error}</Alert>}
+          <Button type="submit" className="w-full" busy={saving} disabled={!packageId}>
+            Tahsil et ve paketi tanımla
+          </Button>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+function CreditForm({ c, onClose, onDone }: { c: CustomerDetail; onClose: () => void; onDone: () => void }) {
+  const [allowed, setAllowed] = useState(c.creditAllowed);
+  const [limit, setLimit] = useState(c.creditLimitKurus !== null ? kurusToInput(c.creditLimitKurus) : '');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const lim = limit.trim() ? parseTl(limit) : null;
+    if (limit.trim() && lim === null) return setError('Geçerli bir limit girin');
+    setSaving(true);
+    setError(null);
+    try {
+      await api.customers.update(c.id, { creditAllowed: allowed, creditLimitKurus: lim });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kaydedilemedi');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open title="Veresiye ayarı" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={allowed} onChange={(e) => setAllowed(e.target.checked)} />
+          <span>Bu müşteri ödemeden teslim alabilir (cari hesap)</span>
+        </label>
+        <Input label="Borç limiti (₺)" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} hint="Boş bırakılırsa limitsiz" disabled={!allowed} />
+        {error && <Alert>{error}</Alert>}
+        <Button type="submit" className="w-full" busy={saving}>
+          Kaydet
+        </Button>
       </form>
     </Modal>
   );

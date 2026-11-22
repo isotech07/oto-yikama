@@ -137,3 +137,15 @@ describe('tahsilat', () => {
     expect(calls.some((c) => c.url.endsWith('/payments'))).toBe(false);
   });
 });
+
+describe('bağlantı', () => {
+  it('çevrimdışı olunca uyarı görünür, bağlantı gelince kaybolur', async () => {
+    mockFetch(() => ({ status: 401, body: {} }));
+    render(<App />);
+    await screen.findByRole('button', { name: 'Giriş yap' });
+    fireEvent(window, new Event('offline'));
+    expect(await screen.findByText(/İnternet bağlantısı yok/)).toBeInTheDocument();
+    fireEvent(window, new Event('online'));
+    await waitFor(() => expect(screen.queryByText(/İnternet bağlantısı yok/)).not.toBeInTheDocument());
+  });
+});

@@ -38,6 +38,11 @@ async function main() {
     }
 
     if ((await prisma.workOrder.count()) === 0) await seedWorkOrders();
+    if ((await prisma.package.count()) === 0) {
+      const dis = await prisma.service.findFirst({ where: { name: 'Dış Yıkama' } });
+      if (dis) await prisma.package.create({ data: { name: '10 Dış Yıkama', serviceId: dis.id, credits: 10, priceKurus: 225000, vatRateBp: 2000, validDays: 180 } });
+    }
+    await prisma.businessSettings.upsert({ where: { id: 1 }, update: {}, create: { id: 1, name: 'Parlak Oto Yıkama', address: 'Atatürk Cad. No: 12, Kadıköy / İstanbul', phone: '0216 555 12 34' } });
   }
   console.log('Seed tamamlandı');
 }

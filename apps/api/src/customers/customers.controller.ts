@@ -1,7 +1,10 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Patch, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Patch, Post, Query } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { Roles } from '../auth/decorators';
+import type { CurrentUserInfo } from '../auth/auth.types';
+import { CurrentUser, Roles } from '../auth/decorators';
+import { customerPackageSelect } from '../packages/packages.controller';
+import { customerOutstanding } from '../work-orders/receivables';
 import { IdParam, optionalText, PageQuery } from '../common/params';
 import { ZodPipe } from '../common/zod.pipe';
 import { normalizePhone } from '../domain/phone';
@@ -24,8 +27,25 @@ const phoneField = z
 const CreateCustomer = z.object({
   name: z.string().trim().min(2, 'Ad en az 2 karakter olmalı').max(120),
   phone: phoneField,
+  smsConsent: z.boolean().optional(),
+  // Veresiye alanlarını yalnız yönetici değiştirebilir (aşağıda kontrol).
+  creditAllowed: z.boolean().optional(),
+  creditLimitKurus: z.number().int().min(0).max(100_000_000).nullish(),
 });
 const UpdateCustomer = CreateCustomer.partial();
+
+type CustomerInput = z.infer<typeof UpdateCustomer>;
+
+function toData(body: CustomerInput, user: CurrentUserInfo) {
+  if (user.role !== 'ADMIN' && (body.creditAllowed !== undefined || body.creditLimitKurus !== undefined)) {
+    throw new ForbiddenException('Veresiye ayarlarını yalnız yönetici değiştirebilir');
+  }
+  const { smsConsent, ...rest } = body;
+  return {
+    ...rest,
+    ...(smsConsent !== undefined ? { smsConsent, smsConsentAt: smsConsent ? new Date() : null } : {}),
+  };
+}
 const ListQuery = PageQuery.extend({ q: optionalText(60) });
 
 const vehicleSelect = { id: true, plate: true, brand: true, model: true, color: true } as const;
@@ -68,7 +88,11 @@ export class CustomersController {
         id: true,
         name: true,
         phone: true,
+        smsConsent: true,
+        creditAllowed: true,
+        creditLimitKurus: true,
         createdAt: true,
+        customerPackages: { orderBy: { createdAt: 'desc' }, select: customerPackageSelect },
         vehicles: { where: { deletedAt: null }, select: vehicleSelect, orderBy: { createdAt: 'asc' } },
         workOrders: {
           where: { deletedAt: null },
@@ -79,20 +103,25 @@ export class CustomersController {
       },
     });
     if (!c) throw new NotFoundException('Müşteri bulunamadı');
-    return c;
+    const { customerPackages, ...rest } = c;
+    return { ...rest, packages: customerPackages, outstandingKurus: await customerOutstanding(this.prisma, id) };
   }
 
   @Roles('ADMIN', 'CASHIER')
   @Post()
-  create(@Body(new ZodPipe(CreateCustomer)) body: z.infer<typeof CreateCustomer>) {
-    return this.prisma.customer.create({ data: body, select: { id: true, name: true, phone: true } });
+  create(@Body(new ZodPipe(CreateCustomer)) body: z.infer<typeof CreateCustomer>, @CurrentUser() user: CurrentUserInfo) {
+    return this.prisma.customer.create({ data: { ...toData(body, user), name: body.name }, select: { id: true, name: true, phone: true } });
   }
 
   @Roles('ADMIN', 'CASHIER')
   @Patch(':id')
-  async update(@IdParam() id: string, @Body(new ZodPipe(UpdateCustomer)) body: z.infer<typeof UpdateCustomer>) {
+  async update(
+    @IdParam() id: string,
+    @Body(new ZodPipe(UpdateCustomer)) body: z.infer<typeof UpdateCustomer>,
+    @CurrentUser() user: CurrentUserInfo,
+  ) {
     if (Object.keys(body).length === 0) throw new BadRequestException('Değişiklik yok');
-    const r = await this.prisma.customer.updateMany({ where: { id, deletedAt: null }, data: body });
+    const r = await this.prisma.customer.updateMany({ where: { id, deletedAt: null }, data: toData(body, user) });
     if (r.count === 0) throw new NotFoundException('Müşteri bulunamadı');
     return this.get(id);
   }

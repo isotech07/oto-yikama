@@ -1,7 +1,8 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Alert, Button, Card, Input, Loading, PageHeader, Select } from '../components/ui';
-import { api, ApiError, type CustomerSummary, type Vehicle, type WorkOrderStatus } from '../lib/api';
+import { api, ApiError, type CustomerPackage, type CustomerSummary, type Vehicle, type WorkOrderStatus } from '../lib/api';
+import { SmsConsent } from './CustomersPage';
 import { displayPhone, displayPlate, STATUS_LABELS } from '../lib/format';
 import { formatTl } from '../lib/money';
 import { useAsync } from '../lib/useAsync';
@@ -21,6 +22,18 @@ export function NewWorkOrderPage() {
   const [customer, setCustomer] = useState<CustomerSummary | null>(null);
   const [qty, setQty] = useState<Record<string, number>>({});
   const [workerId, setWorkerId] = useState('');
+  // Müşterinin kullanılabilir paketleri ve hangi hizmette paketten düşüleceği
+  const [packages, setPackages] = useState<CustomerPackage[]>([]);
+  const [usePkg, setUsePkg] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setUsePkg({});
+    if (!customer) return setPackages([]);
+    api.customers.packages(customer.id).then(
+      (ps) => setPackages(ps.filter((p) => p.remainingCredits > 0 && (!p.expiresAt || new Date(p.expiresAt) > new Date()))),
+      () => setPackages([]),
+    );
+  }, [customer]);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +63,7 @@ export function NewWorkOrderPage() {
     () => (services.data ?? []).filter((s) => (qty[s.id] ?? 0) > 0).map((s) => ({ ...s, quantity: qty[s.id] })),
     [services.data, qty],
   );
-  const total = selected.reduce((sum, s) => sum + s.priceKurus * s.quantity, 0);
+  const total = selected.reduce((sum, s) => sum + (usePkg[s.id] ? 0 : s.priceKurus * s.quantity), 0);
   const blocked = !!lookup?.openWorkOrder;
   const canSubmit = !!lookup && !blocked && selected.length > 0 && !submitting;
 
@@ -69,7 +82,7 @@ export function NewWorkOrderPage() {
         customerId: customer?.id ?? null,
         assignedWorkerId: workerId || null,
         note: note || null,
-        items: selected.map((s) => ({ serviceId: s.id, quantity: s.quantity })),
+        items: selected.map((s) => ({ serviceId: s.id, quantity: s.quantity, customerPackageId: usePkg[s.id] || null })),
       });
       navigate(`/is/${wo.id}`, { replace: true });
     } catch (err) {
@@ -145,6 +158,20 @@ export function NewWorkOrderPage() {
                           <span className="text-sm tabular-nums text-slate-600">{formatTl(s.priceKurus)}</span>
                         </span>
                       </button>
+                      {q > 0 &&
+                        packages
+                          .filter((p) => p.serviceId === s.id && p.remainingCredits >= q)
+                          .slice(0, 1)
+                          .map((p) => (
+                            <label key={p.id} className="flex items-center gap-1 rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                              <input
+                                type="checkbox"
+                                checked={usePkg[s.id] === p.id}
+                                onChange={(e) => setUsePkg({ ...usePkg, [s.id]: e.target.checked ? p.id : '' })}
+                              />
+                              Paketten ({p.remainingCredits})
+                            </label>
+                          ))}
                       {q > 0 && (
                         <div className="flex items-center gap-1" aria-label={`${s.name} adedi`}>
                           <button type="button" className="h-7 w-7 rounded bg-white ring-1 ring-slate-300" onClick={() => setQty({ ...qty, [s.id]: q - 1 })} aria-label="Azalt">
@@ -185,7 +212,7 @@ export function NewWorkOrderPage() {
                   <span>
                     {s.name} {s.quantity > 1 && <span className="text-slate-500">×{s.quantity}</span>}
                   </span>
-                  <span className="tabular-nums">{formatTl(s.priceKurus * s.quantity)}</span>
+                  <span className="tabular-nums">{usePkg[s.id] ? 'Paket' : formatTl(s.priceKurus * s.quantity)}</span>
                 </li>
               ))}
             </ul>
@@ -216,6 +243,7 @@ function CustomerPicker({ value, onChange, locked }: { value: CustomerSummary | 
   const [results, setResults] = useState<CustomerSummary[]>([]);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [smsConsent, setSmsConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -231,7 +259,7 @@ function CustomerPicker({ value, onChange, locked }: { value: CustomerSummary | 
     setSaving(true);
     setError(null);
     try {
-      onChange(await api.customers.create({ name, phone: phone || null }));
+      onChange(await api.customers.create({ name, phone: phone || null, smsConsent }));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Kaydedilemedi');
     } finally {
@@ -287,6 +315,7 @@ function CustomerPicker({ value, onChange, locked }: { value: CustomerSummary | 
             <Input label="Ad soyad" value={name} onChange={(e) => setName(e.target.value)} />
             <Input label="Telefon" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0532 123 45 67" />
           </div>
+          <SmsConsent checked={smsConsent} onChange={setSmsConsent} />
           {error && <Alert>{error}</Alert>}
           <Button type="button" variant="secondary" onClick={createCustomer} busy={saving} disabled={name.trim().length < 2}>
             Müşteriyi kaydet

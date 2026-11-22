@@ -17,3 +17,22 @@ body,
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+/* Fiş yazdırma: yalnız fiş görünür, 80 mm rulo */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 4mm;
+  }
+  body.receipt-mode header,
+  body.receipt-mode nav {
+    display: none !important;
+  }
+  body.receipt-mode main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  body.receipt-mode {
+    background: white;
+  }
+}

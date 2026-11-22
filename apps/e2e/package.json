@@ -1,0 +1,11 @@
+{
+  "name": "@oto-yikama/e2e",
+  "private": true,
+  "scripts": {
+    "e2e": "playwright test --trace off",
+    "e2e:prepare": "npm run db:migrate:deploy -w apps/api --prefix ../.. && npm run db:seed -w apps/api --prefix ../.."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

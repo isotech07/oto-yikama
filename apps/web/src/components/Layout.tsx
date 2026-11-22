@@ -8,9 +8,11 @@ export const NAV: { to: string; label: string; icon: string; roles: Role[] }[] =
   { to: '/', label: 'İş Emirleri', icon: '🧽', roles: ['ADMIN', 'CASHIER', 'WORKER'] },
   { to: '/yeni', label: 'Yeni İş', icon: '➕', roles: ['ADMIN', 'CASHIER'] },
   { to: '/musteriler', label: 'Müşteriler', icon: '👥', roles: ['ADMIN', 'CASHIER'] },
+  { to: '/kasa', label: 'Kasa', icon: '💰', roles: ['ADMIN', 'CASHIER'] },
   { to: '/hizmetler', label: 'Hizmetler', icon: '🏷️', roles: ['ADMIN'] },
   { to: '/kullanicilar', label: 'Kullanıcılar', icon: '🔑', roles: ['ADMIN'] },
   { to: '/raporlar', label: 'Raporlar', icon: '📊', roles: ['ADMIN'] },
+  { to: '/ayarlar', label: 'Ayarlar', icon: '⚙️', roles: ['ADMIN'] },
 ];
 
 export function Layout() {
@@ -28,7 +30,7 @@ export function Layout() {
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">🚿</span>
             <span className="hidden sm:inline">Oto Yıkama</span>
           </span>
-          <nav className="hidden flex-1 gap-1 md:flex" aria-label="Ana menü">
+          <nav className="hidden flex-1 gap-1 overflow-x-auto md:flex" aria-label="Ana menü">
             {items.map((n) => (
               <NavLink key={n.to} to={n.to} end={n.to === '/'} className={linkCls}>
                 {n.label}
@@ -52,8 +54,7 @@ export function Layout() {
 
       {items.length > 1 && (
         <nav
-          className="fixed inset-x-0 bottom-0 z-30 grid border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
-          style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+          className="fixed inset-x-0 bottom-0 z-30 flex overflow-x-auto border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
           aria-label="Alt menü"
         >
           {items.map((n) => (
@@ -61,7 +62,9 @@ export function Layout() {
               key={n.to}
               to={n.to}
               end={n.to === '/'}
-              className={({ isActive }) => `flex flex-col items-center py-2 text-[11px] ${isActive ? 'text-brand-700' : 'text-slate-500'}`}
+              className={({ isActive }) =>
+                `flex min-w-[68px] flex-1 flex-col items-center py-2 text-[11px] ${isActive ? 'text-brand-700' : 'text-slate-500'}`
+              }
             >
               <span className="text-lg leading-none" aria-hidden>
                 {n.icon}

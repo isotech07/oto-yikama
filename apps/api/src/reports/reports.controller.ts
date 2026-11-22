@@ -6,6 +6,7 @@ import { dateString } from '../common/params';
 import { ZodPipe } from '../common/zod.pipe';
 import { dayRange, trDate } from '../domain/time';
 import { PrismaService } from '../prisma/prisma.service';
+import { outstandingSql } from '../work-orders/receivables';
 
 const SummaryQuery = z.object({ from: dateString.optional(), to: dateString.optional() });
 
@@ -69,6 +70,18 @@ export class ReportsController {
       WHERE w.deleted_at IS NULL AND w.delivered_at >= ${start} AND w.delivered_at < ${end}
       GROUP BY u.id, u.name ORDER BY count DESC`);
 
+    const pkgRows = await this.prisma.$queryRaw<{ count: bigint; gross: bigint | null; vat: bigint | null }[]>(Prisma.sql`
+      SELECT COUNT(*) AS count, SUM(price_kurus) AS gross,
+             SUM(price_kurus - ROUND(price_kurus * 10000.0 / (10000 + vat_rate_bp))) AS vat
+      FROM customer_packages WHERE created_at >= ${start} AND created_at < ${end}`);
+    const pkgGross = Number(pkgRows[0]?.gross ?? 0);
+    const pkgVat = Number(pkgRows[0]?.vat ?? 0);
+    const receivablesKurus = await outstandingSql(this.prisma);
+    const closings = await this.prisma.cashClosing.findMany({
+      where: { businessDate: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) } },
+      select: { businessDate: true, differenceKurus: true },
+    });
+
     const methods = { NAKIT: 0, KART: 0, HAVALE: 0 };
     for (const m of byMethod) methods[m.method] = m._sum.amountKurus ?? 0;
     const cashTotal = methods.NAKIT + methods.KART + methods.HAVALE;
@@ -85,7 +98,14 @@ export class ReportsController {
         refundCount: refunds._count,
       },
       workOrders: { created, delivered, cancelled, openNow: open },
-      revenue: { grossKurus: gross, vatKurus: vat, netKurus: gross - vat },
+      // Ciro = teslim edilen iş emirleri + satılan paketler (paket kalemleri iş emrinde 0 TL'dir, çift sayılmaz).
+      revenue: { grossKurus: gross + pkgGross, vatKurus: vat + pkgVat, netKurus: gross + pkgGross - vat - pkgVat },
+      packages: { sold: Number(pkgRows[0]?.count ?? 0), grossKurus: pkgGross, vatKurus: pkgVat },
+      receivablesKurus,
+      cashClosings: {
+        closedDays: closings.length,
+        totalDifferenceKurus: closings.reduce((s, c) => s + c.differenceKurus, 0),
+      },
       services: services.map((r) => ({
         name: r.service_name,
         quantity: Number(r.qty),

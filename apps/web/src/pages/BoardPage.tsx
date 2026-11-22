@@ -152,9 +152,18 @@ function History() {
   const [date, setDate] = useState(todayTr());
   const [plate, setPlate] = useState('');
   const [page, setPage] = useState(1);
+  const [unpaid, setUnpaid] = useState(false);
+  const { user } = useAuth();
   const { data, error, loading } = useAsync(
-    () => api.workOrders.list({ scope: 'all', date: plate ? undefined : date, plate: plate || undefined, page, pageSize: 25 }),
-    [date, plate, page],
+    () =>
+      api.workOrders.list({
+        scope: unpaid ? 'unpaid' : 'all',
+        date: plate || unpaid ? undefined : date,
+        plate: plate || undefined,
+        page,
+        pageSize: 25,
+      }),
+    [date, plate, page, unpaid],
   );
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -164,6 +173,11 @@ function History() {
         <Input label="Tarih" type="date" value={date} onChange={(e) => (setDate(e.target.value), setPage(1))} disabled={!!plate} />
         <Input label="Plaka ara" placeholder="34ABC" value={plate} onChange={(e) => (setPlate(e.target.value), setPage(1))} hint="Plaka girilirse tüm tarihler aranır" />
       </div>
+      {user?.role !== 'WORKER' && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={unpaid} onChange={(e) => (setUnpaid(e.target.checked), setPage(1))} /> Yalnız borcu kalan (veresiye) teslimler
+        </label>
+      )}
       {error && <Alert>{error}</Alert>}
       {loading && !data ? (
         <Loading />
@@ -184,6 +198,9 @@ function History() {
                   <div className="text-right">
                     <StatusBadge status={wo.status} />
                     <p className="mt-1 text-sm tabular-nums text-slate-700">{formatTl(wo.totals.grossKurus)}</p>
+                    {wo.status === 'TESLIM_EDILDI' && (wo.balanceKurus ?? 0) > 0 && (
+                      <p className="text-xs font-medium text-amber-700">Borç {formatTl(wo.balanceKurus!)}</p>
+                    )}
                   </div>
                 </Link>
               </li>

@@ -25,6 +25,19 @@ Web: http://localhost:5173 · API: http://localhost:3000/api
 | Kasiyer  | kasiyer@otoyikama.local    | Kasiyer123!  |
 | Personel | personel@otoyikama.local   | Personel123! |
 
+## Canlıya alma
+
+Docker Compose ile tek sunucu (HTTPS ve günlük yedek dahil): **[DEPLOY.md](DEPLOY.md)**.
+
+## Testler
+
+```bash
+npm test            # API birim + entegrasyon (PostgreSQL gerekir), web birim
+npm run e2e         # Playwright uçtan uca (otoyikama_e2e veritabanı; sunucuları kendisi başlatır)
+```
+
+GitHub Actions her push'ta tüm testleri ve üretim imaj derlemesini çalıştırır (`.github/workflows/ci.yml`).
+
 ## Ekranlar
 
 | Ekran | Roller |
@@ -33,7 +46,10 @@ Web: http://localhost:5173 · API: http://localhost:3000/api
 | Yeni iş emri (plaka ile otomatik araç/müşteri bulma) | Yönetici, Kasiyer |
 | İş emri detayı: hizmet ekle/çıkar, atama, not, tahsilat, iade (yönetici) | hepsi (personel salt durum) |
 | Müşteriler ve araçlar | Yönetici, Kasiyer |
-| Hizmetler ve fiyatlar, Kullanıcılar, Raporlar | Yönetici |
+| Müşteri detayı: paket satışı ve kalan kredi, açık borç | Yönetici, Kasiyer (veresiye ayarı yalnız Yönetici) |
+| Gün sonu kasa kapanışı | Kasiyer (bugün), Yönetici (geçmiş günler + geçmiş liste) |
+| Bilgi fişi (80 mm yazdırma, mali değeri yoktur) | Yönetici, Kasiyer |
+| Hizmetler ve paketler, Kullanıcılar, Raporlar, Ayarlar (işletme bilgileri, SMS) | Yönetici |
 
 Uygulama PWA olarak telefona/tablete kurulabilir (üretim derlemesinde).
 
@@ -62,3 +78,10 @@ Tüm uçlar `/api` altındadır. Yetki sunucuda kontrol edilir; `@Roles` tanım�
 | POST/DELETE | /work-orders/:id/items · /work-orders/:id/items/:itemId | Yönetici, Kasiyer |
 | POST | /work-orders/:id/payments | Yönetici, Kasiyer (iade: negatif tutar, yalnız Yönetici) |
 | GET | /reports/summary?from=&to= | Yönetici |
+| GET · PATCH | /settings | okuma: Yönetici, Kasiyer · yazma: Yönetici |
+| GET | /cash-closings/preview?date= | Yönetici, Kasiyer |
+| POST | /cash-closings | Kasiyer (bugün), Yönetici |
+| GET | /cash-closings | Yönetici |
+| GET | /packages · /customers/:id/packages | Yönetici, Kasiyer |
+| POST/PATCH/DELETE | /packages · /packages/:id | Yönetici |
+| POST | /customers/:id/packages (paket satışı + ödeme) | Yönetici, Kasiyer |

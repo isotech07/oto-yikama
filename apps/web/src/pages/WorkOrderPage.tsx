@@ -33,8 +33,10 @@ export function WorkOrderPage() {
   if (error || !wo) return <Alert>{error ?? 'Bulunamadı'}</Alert>;
 
   const open = !['TESLIM_EDILDI', 'CANCELLED'].includes(wo.status);
+  const onCredit = (wo.balanceKurus ?? 0) > 0;
   const changeStatus = (to: WorkOrderStatus) => {
     if (to === 'CANCELLED' && !confirm('İş emri iptal edilsin mi?')) return;
+    if (to === 'TESLIM_EDILDI' && onCredit && !confirm(`${formatTl(wo.balanceKurus!)} müşterinin cari hesabına (veresiye) yazılarak teslim edilsin mi?`)) return;
     void run(`s-${to}`, () => api.workOrders.status(wo.id, to));
   };
 
@@ -72,12 +74,28 @@ export function WorkOrderPage() {
               onClick={() => changeStatus(to)}
               className={to === 'CANCELLED' ? '' : 'flex-1 sm:flex-none'}
             >
-              {STATUS_ACTIONS[to]}
+              {to === 'TESLIM_EDILDI' && onCredit ? 'Veresiye teslim et' : STATUS_ACTIONS[to]}
             </Button>
           ))}
         </div>
       )}
-      {isStaff && wo.status === 'HAZIR' && (wo.balanceKurus ?? 0) > 0 && (
+      {isStaff && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <Link to={`/is/${wo.id}/fis`} className="rounded-lg bg-white px-3 py-1.5 ring-1 ring-slate-300 hover:bg-slate-50">
+            🧾 Bilgi fişi
+          </Link>
+          {wo.notifications?.map((n) => (
+            <span
+              key={n.kind}
+              className={`rounded-full px-2.5 py-1 text-xs ${n.status === 'SENT' ? 'bg-emerald-50 text-emerald-700' : n.status === 'FAILED' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}
+              title={n.lastError ?? ''}
+            >
+              SMS: {n.status === 'SENT' ? 'gönderildi' : n.status === 'FAILED' ? 'gönderilemedi' : `sırada (${n.attempts} deneme)`}
+            </span>
+          ))}
+        </div>
+      )}
+      {isStaff && wo.status === 'HAZIR' && (wo.balanceKurus ?? 0) > 0 && !wo.customer?.creditAllowed && (
         <div className="mb-4">
           <Alert tone="warning">Teslim için önce kalan {formatTl(wo.balanceKurus!)} tahsil edilmeli.</Alert>
         </div>

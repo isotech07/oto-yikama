@@ -1,0 +1,30 @@
+# DOMAIN gerçek bir alan adıysa Caddy Let's Encrypt sertifikasını kendisi alır ve yeniler.
+# DOMAIN=localhost ise yerel (güvenilmeyen) sertifika üretir — yalnız deneme için.
+{$DOMAIN} {
+	encode zstd gzip
+
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv
+		# Service worker ve index her zaman tazelensin; hash'li dosyalar uzun süre önbellekte kalsın.
+		@nocache path /sw.js /index.html /manifest.webmanifest /registerSW.js
+		header @nocache Cache-Control "no-cache"
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}

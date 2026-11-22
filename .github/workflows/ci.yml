@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: otoyikama
+          POSTGRES_PASSWORD: otoyikama
+          POSTGRES_DB: otoyikama_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U otoyikama"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: otoyikama
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+        working-directory: apps/api
+      - name: E2E veritabanı
+        run: psql -h localhost -U otoyikama -d otoyikama_test -c "CREATE DATABASE otoyikama_e2e"
+
+      - name: Tip kontrolü ve web derlemesi
+        run: npm run typecheck
+      - name: API testleri (birim + entegrasyon)
+        run: npm test -w apps/api
+      - name: Web testleri
+        run: npm test -w apps/web
+
+      - name: Playwright tarayıcısı
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/e2e
+      - name: Uçtan uca testler
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-sonuclari
+          path: apps/e2e/test-results
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Üretim imajlarını derle
+        run: docker compose -f docker-compose.yml --env-file deploy/.env.example build

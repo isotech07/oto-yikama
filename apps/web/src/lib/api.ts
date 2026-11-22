@@ -38,8 +38,55 @@ export interface CustomerListItem extends CustomerSummary {
   createdAt: string;
   vehicles: VehicleSummary[];
 }
+export interface CustomerPackage {
+  id: string;
+  name: string;
+  serviceId: string;
+  totalCredits: number;
+  remainingCredits: number;
+  priceKurus: number;
+  expiresAt: string | null;
+  createdAt: string;
+}
 export interface CustomerDetail extends CustomerListItem {
+  smsConsent: boolean;
+  creditAllowed: boolean;
+  creditLimitKurus: number | null;
+  outstandingKurus: number;
+  packages: CustomerPackage[];
   workOrders: { id: string; status: WorkOrderStatus; createdAt: string; vehicle: { plate: string } }[];
+}
+export interface PackageDef {
+  id: string;
+  name: string;
+  credits: number;
+  priceKurus: number;
+  vatRateBp: number;
+  validDays: number | null;
+  isActive: boolean;
+  service: { id: string; name: string };
+}
+export interface Settings {
+  name: string;
+  address: string | null;
+  phone: string | null;
+  taxOffice: string | null;
+  taxNumber: string | null;
+  receiptFooter: string | null;
+  smsEnabled: boolean;
+  smsReadyTemplate: string;
+}
+export interface CashClosing {
+  id: string;
+  businessDate: string;
+  openingFloatKurus: number;
+  cashInKurus: number;
+  expectedKurus: number;
+  countedKurus: number;
+  differenceKurus: number;
+  note: string | null;
+  createdAt: string;
+  closedBy: { id: string; name: string };
 }
 export interface WorkOrderItem {
   id: string;
@@ -49,6 +96,7 @@ export interface WorkOrderItem {
   vatRateBp: number;
   quantity: number;
   lineTotal: number;
+  customerPackageId: string | null;
 }
 export interface Payment {
   id: string;
@@ -67,7 +115,7 @@ export interface WorkOrder {
   deliveredAt: string | null;
   cancelledAt: string | null;
   vehicle: VehicleSummary;
-  customer: CustomerSummary | null;
+  customer: (CustomerSummary & { creditAllowed?: boolean; creditLimitKurus?: number | null }) | null;
   assignedWorker: { id: string; name: string } | null;
   createdBy: { id: string; name: string };
   items: WorkOrderItem[];
@@ -75,6 +123,7 @@ export interface WorkOrder {
   paidKurus: number | null;
   balanceKurus: number | null;
   payments?: Payment[];
+  notifications?: { kind: string; status: 'PENDING' | 'SENT' | 'FAILED'; attempts: number; sentAt: string | null; lastError: string | null }[];
   allowedNext: WorkOrderStatus[];
 }
 export interface Paged<T> {
@@ -90,7 +139,16 @@ export interface Summary {
   workOrders: { created: number; delivered: number; cancelled: number; openNow: number };
   revenue: { grossKurus: number; vatKurus: number; netKurus: number };
   services: { name: string; quantity: number; grossKurus: number; vatKurus: number }[];
+  packages: { sold: number; grossKurus: number; vatKurus: number };
+  receivablesKurus: number;
+  cashClosings: { closedDays: number; totalDifferenceKurus: number };
   workers: { id: string; name: string; delivered: number }[];
+}
+
+export interface ItemInput {
+  serviceId: string;
+  quantity: number;
+  customerPackageId?: string | null;
 }
 
 export class ApiError extends Error {
@@ -145,8 +203,14 @@ export const api = {
   customers: {
     list: (q?: string, page = 1) => get<Paged<CustomerListItem>>(`/customers${qs({ q, page })}`),
     get: (id: string) => get<CustomerDetail>(`/customers/${id}`),
-    create: (b: { name: string; phone?: string | null }) => send<CustomerSummary>('POST', '/customers', b),
-    update: (id: string, b: { name?: string; phone?: string | null }) => send<CustomerDetail>('PATCH', `/customers/${id}`, b),
+    create: (b: { name: string; phone?: string | null; smsConsent?: boolean }) => send<CustomerSummary>('POST', '/customers', b),
+    update: (
+      id: string,
+      b: { name?: string; phone?: string | null; smsConsent?: boolean; creditAllowed?: boolean; creditLimitKurus?: number | null },
+    ) => send<CustomerDetail>('PATCH', `/customers/${id}`, b),
+    packages: (id: string) => get<CustomerPackage[]>(`/customers/${id}/packages`),
+    sellPackage: (id: string, b: { packageId: string; method: PaymentMethod; idempotencyKey: string }) =>
+      send<CustomerPackage>('POST', `/customers/${id}/packages`, b),
     remove: (id: string) => send<void>('DELETE', `/customers/${id}`),
   },
   vehicles: {
@@ -175,7 +239,7 @@ export const api = {
     remove: (id: string) => send<void>('DELETE', `/users/${id}`),
   },
   workOrders: {
-    list: (p: { scope?: 'open' | 'all'; status?: WorkOrderStatus; date?: string; plate?: string; page?: number; pageSize?: number } = {}) =>
+    list: (p: { scope?: 'open' | 'all' | 'unpaid'; status?: WorkOrderStatus; date?: string; plate?: string; page?: number; pageSize?: number } = {}) =>
       get<Paged<WorkOrder>>(`/work-orders${qs(p)}`),
     get: (id: string) => get<WorkOrder>(`/work-orders/${id}`),
     create: (b: {
@@ -183,16 +247,34 @@ export const api = {
       customerId?: string | null;
       assignedWorkerId?: string | null;
       note?: string | null;
-      items: { serviceId: string; quantity: number }[];
+      items: ItemInput[];
     }) => send<WorkOrder>('POST', '/work-orders', b),
     status: (id: string, to: WorkOrderStatus) => send<WorkOrder>('POST', `/work-orders/${id}/status`, { to }),
     assign: (id: string, workerId: string | null) => send<WorkOrder>('PATCH', `/work-orders/${id}/assign`, { workerId }),
     note: (id: string, note: string | null) => send<WorkOrder>('PATCH', `/work-orders/${id}/note`, { note }),
-    addItems: (id: string, items: { serviceId: string; quantity: number }[]) =>
+    addItems: (id: string, items: ItemInput[]) =>
       send<WorkOrder>('POST', `/work-orders/${id}/items`, { items }),
     removeItem: (id: string, itemId: string) => send<WorkOrder>('DELETE', `/work-orders/${id}/items/${itemId}`),
     pay: (id: string, b: { amountKurus: number; method: PaymentMethod; note?: string | null; idempotencyKey: string }) =>
       send<WorkOrder>('POST', `/work-orders/${id}/payments`, b),
+  },
+  packages: {
+    list: (includeInactive = false) => get<PackageDef[]>(`/packages${qs({ includeInactive: includeInactive ? 'true' : undefined })}`),
+    create: (b: { name: string; serviceId: string; credits: number; priceKurus: number; vatRateBp: number; validDays: number | null; isActive: boolean }) =>
+      send<PackageDef>('POST', '/packages', b),
+    update: (id: string, b: Partial<{ name: string; priceKurus: number; vatRateBp: number; validDays: number | null; isActive: boolean }>) =>
+      send<PackageDef>('PATCH', `/packages/${id}`, b),
+    remove: (id: string) => send<void>('DELETE', `/packages/${id}`),
+  },
+  settings: {
+    get: () => get<Settings>('/settings'),
+    update: (b: Partial<Settings>) => send<Settings>('PATCH', '/settings', b),
+  },
+  cash: {
+    preview: (date?: string) => get<{ date: string; cashInKurus: number; closing: CashClosing | null }>(`/cash-closings/preview${qs({ date })}`),
+    close: (b: { date: string; openingFloatKurus: number; countedKurus: number; note?: string | null }) =>
+      send<CashClosing>('POST', '/cash-closings', b),
+    list: () => get<CashClosing[]>('/cash-closings'),
   },
   reports: {
     summary: (from: string, to: string) => get<Summary>(`/reports/summary${qs({ from, to })}`),

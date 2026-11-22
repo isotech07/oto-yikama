@@ -1,0 +1,80 @@
+# Üretim kurulumu: docker compose --env-file deploy/.env up -d
+# Ayrıntılar: DEPLOY.md
+name: oto-yikama
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: otoyikama
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD gerekli}
+      POSTGRES_DB: otoyikama
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U otoyikama -d otoyikama']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://otoyikama:${POSTGRES_PASSWORD}@db:5432/otoyikama
+      NODE_ENV: production
+      PORT: '3000'
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SMS_PROVIDER: ${SMS_PROVIDER:-log}
+      NETGSM_USERCODE: ${NETGSM_USERCODE:-}
+      NETGSM_PASSWORD: ${NETGSM_PASSWORD:-}
+      NETGSM_HEADER: ${NETGSM_HEADER:-}
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN gerekli}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      # API sağlıklıysa migration'lar uygulanmıştır; ilk yedek boş şema almasın.
+      api:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: otoyikama
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: otoyikama
+      BACKUP_HOUR: ${BACKUP_HOUR:-03}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./deploy/backups:/backups
+      - ./deploy/backup.sh:/backup.sh:ro
+    entrypoint: ['/bin/sh', '/backup.sh']
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

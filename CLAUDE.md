@@ -30,6 +30,17 @@ Arayüz Türkçe, para birimi TL, KDV desteği var.
   - Her ödeme istemci tarafından üretilen `idempotencyKey` (UUID) taşır; aynı anahtar ikinci kez kaydedilmez.
   - Tahsilat, durum, kalem ve atama değişiklikleri iş emri satırını `SELECT … FOR UPDATE` ile kilitler.
   - Kalemler soft delete edilir; ödenen tutarın altına düşürecek kalem çıkarma reddedilir.
+- **Veresiye**: yalnız yöneticinin `credit_allowed` verdiği müşteri bakiyeyle teslim alır; `credit_limit_kurus` varsa
+  müşterinin toplam açık borcu (teslim edilmiş işler) + bu iş limiti aşamaz (müşteri bazlı advisory lock).
+- **Paketler**: satışta paket bilgisi kopyalanır ve tam ödeme alınır (ödeme `customer_package_id`'ye bağlı; ödeme ya iş emrine
+  ya pakete aittir, DB CHECK). Paketle karşılanan kalem `unit_price = 0`; kredi koşullu UPDATE ile düşer, kalem çıkarılınca
+  veya iş iptal edilince geri eklenir. Ciro paket satış gününde sayılır.
+- **Kasa kapanışı**: gün başına tek kayıt, değiştirilemez (trigger). Kapanıştan sonra o güne NAKİT işlem alınmaz.
+  Nakit tahsilat ve kapanış aynı advisory lock'u (`cash:<gün>`) alır.
+- **SMS**: outbox deseni. HAZIR geçişiyle aynı transaction'da `notifications` kaydı yazılır (yalnız ayarlarda açık ve
+  müşteride `sms_consent` varsa). API içindeki gönderici 15 sn'de bir `FOR UPDATE SKIP LOCKED` ile alır, üstel
+  beklemeyle 5 kez dener. Testlerde `NOTIFY_WORKER=off`. Sağlayıcı: `SMS_PROVIDER=log|netgsm`.
+- **Bilgi fişi** resmî belge değildir ("Mali değeri yoktur"); resmî fiş yazar kasa/ÖKC'den kesilir. e-Arşiv entegrasyonu yok.
 - **Raporlar**: İstanbul günü (sabit UTC+3). Kasa = ödeme anına göre; ciro/KDV = teslim anına göre.
 - **PWA**: yalnız uygulama kabuğu önbelleğe alınır; `/api` asla önbelleğe alınmaz (eski bakiye riski).
 - Prisma `migrate dev` bu ortamda etkileşimsiz çalışmaz: yeni migration için şemayı değiştir,
@@ -52,12 +63,22 @@ Arayüz Türkçe, para birimi TL, KDV desteği var.
 - Müşteri telefon ve plaka bilgisi kişisel veridir; loglara açık yazılmaz (gerekirse `maskPlate`).
 - Para tutarları `numeric(10,2)` veya kuruş cinsinden integer tutulur, float kullanılmaz. (Seçilen: kuruş integer.)
 
+## Testler hakkında
+- API testleri kalıcı `otoyikama_test` veritabanında çalışır; veri silinmez, her test benzersiz veri üretir.
+  Gerçek "bugün"ü kapatan kasa testi yazma: saati `vi.useFakeTimers({ toFake: ['Date'] })` ile rastgele bir gelecek güne al.
+- E2E (`apps/e2e`) kendi `otoyikama_e2e` veritabanını kullanır, API'yi :3100, web'i :5199'da kendisi başlatır.
+- Yeni iş kuralı eklerken, kuralı geçici olarak bozup testin kırıldığını doğrula.
+
+## Canlıya alma
+`DEPLOY.md`. Üretim imajları `apps/api/Dockerfile`, `apps/web/Dockerfile` (Caddy), `docker-compose.yml`.
+
 ## Komutlar (kök dizinden)
 - `npm run dev`: API (:3000) + web (:5173, `/api` proxy) birlikte
 - `npm test`: tüm testler (API testleri PostgreSQL gerektirir)
 - `npm run db:migrate`: Prisma migration
 - `npm run db:seed`: örnek veri
 - `npm run typecheck`: tip kontrolü + web build
+- `npm run e2e`: Playwright uçtan uca testleri
 
 ## Çalışma biçimi
 - Büyük kararlarda önce sor, sonra uygula.

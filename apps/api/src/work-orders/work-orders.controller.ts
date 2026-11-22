@@ -11,7 +11,13 @@ import { WorkOrdersService } from './work-orders.service';
 
 const statusEnum = z.nativeEnum(WorkOrderStatus);
 const itemsField = z
-  .array(z.object({ serviceId: z.string().uuid(), quantity: z.number().int().min(1).max(20).default(1) }))
+  .array(
+    z.object({
+      serviceId: z.string().uuid(),
+      quantity: z.number().int().min(1).max(20).default(1),
+      customerPackageId: z.string().uuid().nullish(),
+    }),
+  )
   .min(1, 'En az bir hizmet seçin')
   .max(20);
 
@@ -23,7 +29,7 @@ const CreateBody = z.object({
   items: itemsField,
 });
 const ListQuery = PageQuery.extend({
-  scope: z.enum(['open', 'all']).default('open'),
+  scope: z.enum(['open', 'all', 'unpaid']).default('open'),
   status: statusEnum.optional(),
   date: dateString.optional(),
   plate: z
